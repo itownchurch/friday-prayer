@@ -3,67 +3,222 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Stream</title>
+  <title>Friday Replay</title>
   <style>
     html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: black;
-      overflow: hidden;
+      margin: 0; padding: 0; height: 100%; background: #121212; overflow: hidden;
     }
-    #stream {
-      width: 100vw;
-      height: 100vh;
-      object-fit: contain;
-      background: black;
+    #stream { width: 100vw; height: 100vh; object-fit: contain; background: black; display: none; }
+    #loading {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center; height: 100vh; width: 100vw;
+      background: rgba(18,18,18,0.92); z-index: 10; flex-direction: column;
+    }
+    .loading-card {
+      background: #222; padding: 2.5rem 2rem 2rem 2rem; border-radius: 18px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.22); display: flex; flex-direction: column; align-items: center; min-width: 260px;
+    }
+    .loading-spinner {
+      border: 4px solid #333; border-top: 4px solid #37a7ff; border-radius: 50%;
+      width: 46px; height: 46px; animation: spin 1s linear infinite; margin-bottom: 1.1rem;
+    }
+    .loading-text { color: #fafbfc; font-size: 1.18rem; font-family: 'Segoe UI', 'Arial', sans-serif; letter-spacing: 0.01em; text-align: center; }
+    #countdown {
+      font-family: 'Segoe UI', 'Arial', sans-serif;
+      font-size: 2.2rem;
+      color: #37a7ff;
+      letter-spacing: 0.07em;
+      margin: 1.3rem 0 0.5rem 0;
+      text-align: center;
+    }
+    #countdown-label {
+      color: #fafbfc;
+      font-size: 1.08rem;
+      margin-bottom: 0.5rem;
+      text-align: center;
     }
   </style>
 </head>
 <body>
-  <video id="stream" controls autoplay playsinline style="display: none;"></video>
-  <div id="loading" style="color:white;text-align:center;margin-top:40vh;">Loading stream...</div>
+  <video id="stream" controls autoplay playsinline></video>
+  <div id="loading">
+    <div class="loading-card">
+      <div class="loading-spinner"></div>
+      <div id="countdown-label">Next replay available in</div>
+      <div id="countdown"></div>
+      <div class="loading-text" id="loading-text">Loading replay…</div>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    const video = document.getElementById('stream');
-    const loading = document.getElementById('loading');
-    const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
-    const vodURL = 'https://resi.media/XuvGAN/Manifest.m3u8';
+    // ---- CONFIG ----
+    const vodURL  = 'https://resi.media/XuvGAN/Manifest.m3u8';
+    const VOD_POLL_INTERVAL = 30000;    // 30 seconds
 
-    // Check if the manifest exists
-    async function urlExists(url) {
-      try {
-        const response = await fetch(url, { method: 'HEAD', cache: 'no-store' });
-        return response.ok;
-      } catch {
-        return false;
-      }
+    // ---- TIME HELPERS ----
+    function getNowInEST() {
+      const now = new Date();
+      const options = { timeZone: "America/New_York", hour12: false };
+      const parts = new Intl.DateTimeFormat('en-US', {
+        ...options,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit"
+      }).formatToParts(now);
+      const get = (type) => parts.find(p => p.type === type).value;
+      return {
+        year: +get('year'), month: +get('month'), day: +get('day'),
+        weekday: new Date(`${get('year')}-${get('month')}-${get('day')}`).getDay(),
+        hour: +get('hour'), minute: +get('minute'), second: +get('second'),
+        date: `${get('year')}-${get('month')}-${get('day')}`,
+        dateObj: new Date(`${get('year')}-${get('month')}-${get('day')}T${get('hour').padStart(2,'0')}:${get('minute').padStart(2,'0')}:${get('second').padStart(2,'0')}`)
+      };
     }
 
-    async function chooseAndLoadStream() {
-      const useLive = await urlExists(liveURL);
-      const streamURL = useLive ? liveURL : vodURL;
+    function getNextFriday7amEST() {
+      const nowEST = getNowInEST();
+      let daysUntilFriday = (5 - nowEST.weekday + 7) % 7;
+      if (daysUntilFriday === 0 && nowEST.hour >= 24) daysUntilFriday = 7;
+      const estDate = new Date(nowEST.dateObj.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000);
+      estDate.setHours(7, 0, 0, 0);
+      return new Date(estDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    }
 
+    function isFridayBetween700AndMidnight() {
+      const now = getNowInEST();
+      if (now.weekday !== 5) return false; // 5 = Friday
+      const currMin = now.hour * 60 + now.minute;
+      return currMin >= (7*60) && currMin <= (23*60+59);
+    }
+    function isFridayBefore7am() {
+      const now = getNowInEST();
+      return now.weekday === 5 && now.hour < 7;
+    }
+
+    // ---- COUNTDOWN LOGIC ----
+    let countdownInterval = null;
+    function showCountdown(untilDate) {
+      const countdownDiv = document.getElementById('countdown');
+      const labelDiv = document.getElementById('countdown-label');
+      const loadingText = document.getElementById('loading-text');
+      labelDiv.style.display = '';
+      countdownDiv.style.display = '';
+      loadingText.style.display = 'none';
+      function updateCountdown() {
+        const now = new Date();
+        const diff = untilDate - now;
+        if (diff > 0) {
+          countdownDiv.textContent = formatCountdown(msToDHMS(diff));
+        } else {
+          clearInterval(countdownInterval);
+          location.reload();
+        }
+      }
+      updateCountdown();
+      countdownInterval = setInterval(updateCountdown, 1000);
+    }
+
+    function hideCountdown() {
+      const countdownDiv = document.getElementById('countdown');
+      const labelDiv = document.getElementById('countdown-label');
+      const loadingText = document.getElementById('loading-text');
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownDiv.style.display = 'none';
+      labelDiv.style.display = 'none';
+      loadingText.style.display = '';
+    }
+
+    function msToDHMS(ms) {
+      const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      return { days, hours, minutes, seconds };
+    }
+    function formatCountdown({days, hours, minutes, seconds}) {
+      const dd = days > 0 ? days + "d " : "";
+      const hh = (hours < 10 ? "0" : "") + hours;
+      const mm = (minutes < 10 ? "0" : "") + minutes;
+      const ss = (seconds < 10 ? "0" : "") + seconds;
+      return `${dd}${hh}:${mm}:${ss}`;
+    }
+
+    // ---- VOD POLLING AND PLAYER ----
+    function urlExists(url) {
+      return fetch(url, { method: 'HEAD', cache: 'no-store' })
+        .then(r => r.ok)
+        .catch(() => false);
+    }
+    function setLoading(show, msg='Loading replay…') {
+      const loading = document.getElementById('loading');
+      const loadingText = document.getElementById('loading-text');
+      if (show) {
+        loading.style.display = '';
+        loadingText.textContent = msg;
+      } else {
+        loading.style.display = 'none';
+      }
+    }
+    function loadStream(url, onLoaded) {
+      const video = document.getElementById('stream');
+      if (window.hls) { window.hls.destroy(); }
       if (Hls.isSupported()) {
-        const hls = new Hls({ liveSyncDuration: 3 });
-        hls.loadSource(streamURL);
+        const hls = new Hls();
+        window.hls = hls;
+        hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, function() {
-          loading.style.display = 'none';
+          setLoading(false);
           video.style.display = '';
+          if (onLoaded) onLoaded();
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamURL;
-        video.addEventListener('loadedmetadata', function() {
-          loading.style.display = 'none';
+        video.src = url;
+        video.addEventListener('loadedmetadata', function onLoadedMeta() {
+          video.removeEventListener('loadedmetadata', onLoadedMeta);
+          setLoading(false);
           video.style.display = '';
+          if (onLoaded) onLoaded();
         });
       } else {
-        loading.innerHTML = 'This device does not support live streaming.';
+        setLoading(true, "This device does not support replay.");
       }
     }
+    function pollForVOD(url, interval) {
+      async function tryLoad() {
+        const exists = await urlExists(url);
+        if (exists) {
+          loadStream(url);
+        } else {
+          setTimeout(tryLoad, interval);
+        }
+      }
+      tryLoad();
+    }
 
-    chooseAndLoadStream();
+    // ---- MAIN LOGIC ----
+    function mainSchedule() {
+      const nowEST = getNowInEST();
+      // Friday 7:00 AM to 11:59 PM: VOD player
+      if (isFridayBetween700AndMidnight()) {
+        hideCountdown();
+        setLoading(true, "Loading replay…");
+        pollForVOD(vodURL, VOD_POLL_INTERVAL);
+        return;
+      }
+      // Before Friday 7:00 AM: countdown to Friday 7:00 AM
+      if (isFridayBefore7am() || nowEST.weekday !== 5) {
+        showCountdown(getNextFriday7amEST());
+        setLoading(true, ""); // Hide default loading text, show countdown only
+        return;
+      }
+      // After Friday 11:59 PM and until next Friday: countdown to next Friday 7:00 AM
+      showCountdown(getNextFriday7amEST());
+      setLoading(true, "");
+    }
+
+    mainSchedule();
+    setInterval(mainSchedule, 5*60*1000);
   </script>
 </body>
 </html>
