@@ -152,45 +152,38 @@
   </div>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // ---- CONFIG ----
+    // CONFIG
     const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
     const vodURL  = 'https://resi.media/XuvGAN/Manifest.m3u8';
     const VOD_POLL_INTERVAL = 30000;    // 30 seconds
 
-    // ---- TIME HELPERS ----
+    // TIME HELPERS
     function getNYTime() {
-      const now = new Date();
-      return new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+      return new Date(new Date().toLocaleString("en-US", {timeZone: "America/New_York"}));
     }
 
-    function getThisOrNextFriday(baseDate) {
-      // returns Date for this week's Friday, or next week's if today is after cutoff
-      let d = new Date(baseDate);
-      let day = d.getDay();
-      let daysToFriday = (5 - day + 7) % 7;
-      d.setDate(d.getDate() + daysToFriday);
+    function getMostRecentFriday(refDate) {
+      let d = new Date(refDate);
       d.setHours(0,0,0,0);
+      let day = d.getDay();
+      let diff = (day >= 5) ? day - 5 : day + 2;
+      d.setDate(d.getDate() - diff);
       return d;
     }
 
-    function getFridayAt(h, m) {
-      const nowNY = getNYTime();
-      let thisFriday = getThisOrNextFriday(nowNY);
-      let fri = new Date(thisFriday);
-      fri.setHours(h, m, 0, 0);
-      // If it's already past target time this Friday, go to next Friday
-      if (nowNY > fri) {
-        fri.setDate(fri.getDate() + 7);
-      }
-      return fri;
+    function getUpcomingFriday(refDate) {
+      let d = new Date(refDate);
+      d.setHours(0,0,0,0);
+      let day = d.getDay();
+      let diff = (day <= 5) ? 5 - day : 12 - day;
+      d.setDate(d.getDate() + diff);
+      return d;
     }
 
-    function getThisFridayAt(h, m) {
-      const nowNY = getNYTime();
-      let thisFriday = getThisOrNextFriday(nowNY);
-      let fri = new Date(thisFriday);
-      fri.setHours(h, m, 0, 0);
-      return fri;
+    function addTime(date, h, m) {
+      let newDate = new Date(date);
+      newDate.setHours(h, m, 0, 0);
+      return newDate;
     }
 
     function getReadableDate(date) {
@@ -205,7 +198,7 @@
       });
     }
 
-    // ---- UI HELPERS ----
+    // UI HELPERS
     function showCountdown() {
       document.getElementById("countdown-wrap").style.display = "";
       document.getElementById("player-wrap").style.display = "none";
@@ -219,9 +212,8 @@
       document.getElementById("player-loading").textContent = msg;
     }
 
-    // ---- STREAM HELPERS ----
+    // STREAM HELPERS
     function urlExists(url) {
-      // Use HEAD to check manifest existence (no CORS errors for .m3u8)
       return fetch(url, { method: 'HEAD', cache: 'no-store' })
         .then(r => r.ok)
         .catch(() => false);
@@ -267,25 +259,19 @@
       tryLoad();
     }
 
-    // ---- MAIN LOGIC ----
+    // LOGIC
     function updateUI() {
       const now = getNYTime();
-      // Find this Friday's cutoffs
-      const fri545 = getThisFridayAt(5, 45);
-      const fri600 = getThisFridayAt(6, 0);
-      const fri705 = getThisFridayAt(7, 5);
-      const fri2359 = getThisFridayAt(23, 59);
+      const mostRecentFriday = getMostRecentFriday(now);
+      const fri545 = addTime(mostRecentFriday, 5, 45);
+      const fri600 = addTime(mostRecentFriday, 6, 0);
+      const fri705 = addTime(mostRecentFriday, 7, 5);
+      const fri2359 = addTime(mostRecentFriday, 23, 59);
 
-      // If now is after Friday 23:59, roll over to next Friday
-      let showNextFriday = false;
-      if (now > fri2359) {
-        showNextFriday = true;
-      }
-      // If now is before Friday 5:45, show countdown to this Friday 6:00am
+      // If now is before this Friday 5:45am, show countdown to this Friday 6:00am
       if (now < fri545) {
         showCountdown();
         document.getElementById("subtitle").textContent = getReadableDate(fri600);
-        // Set countdown
         const diff = fri600 - now;
         const totalSeconds = Math.max(0, Math.floor(diff/1000));
         const days = Math.floor(totalSeconds / 86400);
@@ -313,9 +299,10 @@
         setTimeout(updateUI, 5 * 60 * 1000);
         return;
       }
-      // After Friday 11:59 PM: show countdown to next Friday 6:00 AM
-      if (showNextFriday) {
-        const nextFri600 = getFridayAt(6, 0);
+      // After this Friday 11:59 PM: show countdown to next Friday 6:00 AM
+      if (now > fri2359) {
+        const nextFriday = getUpcomingFriday(now);
+        const nextFri600 = addTime(nextFriday, 6, 0);
         showCountdown();
         document.getElementById("subtitle").textContent = getReadableDate(nextFri600);
         const diff = nextFri600 - now;
