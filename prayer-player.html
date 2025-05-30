@@ -1,26 +1,342 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Test HLS</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Join Us For Prayer!</title>
+  <link href="https://fonts.googleapis.com/css?family=Montserrat:700,400&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #080808;
+      color: #fff;
+      font-family: 'Montserrat', Arial, sans-serif;
+      width: 100vw;
+      height: 100vh;
+      min-height: 100vh;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      min-width: 100vw;
+    }
+    .centerbox {
+      width: 100vw;
+      text-align: center;
+    }
+    .label {
+      color: #aaa;
+      letter-spacing: 0.05em;
+      font-size: 1.15rem;
+      margin-bottom: 18px;
+      font-weight: 400;
+    }
+    .main-title {
+      font-size: 2.1rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #fff;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      font-size: 1.2rem;
+      color: #e0e0e0;
+      margin-bottom: 38px;
+      font-weight: 400;
+      letter-spacing: 0.01em;
+    }
+    .countdown-row {
+      display: flex;
+      justify-content: center;
+      gap: 18px;
+      margin-top: 0;
+    }
+    .countdown-box {
+      background: #212121;
+      padding: 32px 36px 18px 36px;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 108px;
+    }
+    .countdown-value {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.04em;
+    }
+    .countdown-label {
+      font-size: 1rem;
+      color: #b0b0b0;
+      letter-spacing: 0.04em;
+      font-weight: 500;
+    }
+    #player-wrap {
+      display: none;
+      width: 100vw;
+      text-align: center;
+    }
+    #player-title {
+      font-size: 2.1rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      margin-top: 0px;
+      color: #fff;
+      letter-spacing: 0.02em;
+    }
+    #player-type {
+      color: #37a7ff;
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      letter-spacing: 0.03em;
+    }
+    #player-video {
+      width: 90vw;
+      max-width: 800px;
+      height: 52vw;
+      max-height: 450px;
+      background: #000;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.22);
+      margin: 0 auto;
+      display: block;
+    }
+    #player-loading {
+      color: #e0e0e0;
+      margin-top: 1.5em;
+      font-size: 1.1rem;
+    }
+    #fallback-message {
+      display: none;
+      color: #ff6666;
+      font-size: 1.2rem;
+      margin-top: 3em;
+      text-align: center;
+    }
+    @media (max-width: 600px) {
+      .main-title, #player-title { font-size: 1.25rem; }
+      .subtitle { font-size: 1rem; }
+      .countdown-row { gap: 8px;}
+      .countdown-box { padding: 18px 8px 10px 8px; min-width: 68px;}
+      .countdown-value { font-size: 1.25rem; }
+      .countdown-label { font-size: 0.75rem; }
+      #player-video { width: 98vw; height: 55vw; min-height: 180px; }
+    }
+  </style>
 </head>
-<body style="background:#111;">
-  <video id="player" controls autoplay playsinline style="width:80vw;max-width:800px;"></video>
+<body>
+  <div class="centerbox" id="countdown-wrap">
+    <div class="label">NEXT SERVICE</div>
+    <div class="main-title">Join Us For Prayer!</div>
+    <div class="subtitle" id="subtitle"></div>
+    <div class="countdown-row" id="countdown">
+      <div class="countdown-box">
+        <div class="countdown-value" id="days">0</div>
+        <div class="countdown-label">DAYS</div>
+      </div>
+      <div class="countdown-box">
+        <div class="countdown-value" id="hours">0</div>
+        <div class="countdown-label">HOUR</div>
+      </div>
+      <div class="countdown-box">
+        <div class="countdown-value" id="minutes">0</div>
+        <div class="countdown-label">MINUTES</div>
+      </div>
+    </div>
+  </div>
+  <div id="player-wrap">
+    <div id="player-type"></div>
+    <div id="player-title">Join Us For Prayer!</div>
+    <video id="player-video" controls autoplay playsinline></video>
+    <div id="player-loading">Loading stream…</div>
+  </div>
+  <div id="fallback-message"></div>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    const url = "https://live.resi.media/itc-fs-in/Manifest.m3u8";
-    const video = document.getElementById("player");
-    if (window.Hls && window.Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, function(event, data) {
-        console.error('HLS.js error:', data);
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url;
-    } else {
-      video.outerHTML = "<div style='color:white;'>HLS not supported in this browser.</div>";
+    // ---- CONFIG ----
+    const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8'; // Corrected
+    const vodURL  = 'https://live.resi.media/XuvGAN/Manifest.m3u8';   // Corrected
+    const VOD_POLL_INTERVAL = 30000;    // 30 seconds
+
+    // ---- TIME HELPERS ----
+    function getNYTime() {
+      return new Date(new Date().toLocaleString("en-US", {timeZone: "America/New_York"}));
     }
+
+    function getThisFriday(baseDate) {
+      // Always get this week's Friday (even if today is Friday)
+      let d = new Date(baseDate);
+      d.setHours(0,0,0,0);
+      let day = d.getDay();
+      let diff = (day <= 5) ? 5 - day : 12 - day; // Friday = 5
+      d.setDate(d.getDate() + diff);
+      return d;
+    }
+
+    function getNextFriday(baseDate) {
+      let d = getThisFriday(baseDate);
+      d.setDate(d.getDate() + 7);
+      return d;
+    }
+
+    function addTime(date, h, m) {
+      let nd = new Date(date);
+      nd.setHours(h, m, 0, 0);
+      return nd;
+    }
+
+    function getReadableDate(date) {
+      return date.toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      });
+    }
+
+    // ---- UI HELPERS ----
+    function showCountdown() {
+      document.getElementById("countdown-wrap").style.display = "";
+      document.getElementById("player-wrap").style.display = "none";
+      document.getElementById("fallback-message").style.display = "none";
+    }
+    function showPlayer(type) {
+      document.getElementById("countdown-wrap").style.display = "none";
+      document.getElementById("player-wrap").style.display = "";
+      document.getElementById("fallback-message").style.display = "none";
+      document.getElementById("player-type").textContent = type === "VOD" ? "Replay Available" : "Livestream";
+    }
+    function showFallback(msg) {
+      document.getElementById("countdown-wrap").style.display = "none";
+      document.getElementById("player-wrap").style.display = "none";
+      document.getElementById("fallback-message").style.display = "";
+      document.getElementById("fallback-message").textContent = msg;
+    }
+    function setPlayerLoading(msg) {
+      document.getElementById("player-loading").textContent = msg;
+    }
+
+    // ---- STREAM HELPERS ----
+    function urlExists(url) {
+      return fetch(url, { method: 'HEAD', cache: 'no-store' })
+        .then(r => r.ok)
+        .catch(() => false);
+    }
+    let hlsInstance = null;
+    function loadStream(url, onLoaded) {
+      const video = document.getElementById("player-video");
+      setPlayerLoading("Loading stream…");
+      if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+      if (window.Hls && window.Hls.isSupported()) {
+        const hls = new Hls();
+        hlsInstance = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          setPlayerLoading("");
+          if (onLoaded) onLoaded();
+        });
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          setPlayerLoading("Stream unavailable.");
+          showFallback("Stream unavailable (HLS.js error: " + data.type + ")");
+          console.error("HLS.js error:", data);
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', function onLoadedMeta() {
+          video.removeEventListener('loadedmetadata', onLoadedMeta);
+          setPlayerLoading("");
+          if (onLoaded) onLoaded();
+        });
+      } else {
+        setPlayerLoading("This device does not support livestream playback.");
+        showFallback("Your browser does not support HLS streaming.");
+      }
+    }
+    function pollForStream(url, interval, onLoaded) {
+      async function tryLoad() {
+        const exists = await urlExists(url);
+        if (exists) {
+          loadStream(url, onLoaded);
+        } else {
+          setPlayerLoading("Stream not available yet, retrying… (" + url + ")");
+          setTimeout(tryLoad, interval);
+        }
+      }
+      tryLoad();
+    }
+
+    // ---- MAIN LOGIC ----
+    function updateUI() {
+      const now = getNYTime();
+      const thisFriday = getThisFriday(now);
+      const fri545 = addTime(thisFriday, 5, 45);
+      const fri600 = addTime(thisFriday, 6, 0);
+      const fri705 = addTime(thisFriday, 7, 5);
+      const fri2359 = addTime(thisFriday, 23, 59);
+
+      // If now is before this Friday 5:45am, show countdown to this Friday 6:00am
+      if (now < fri545) {
+        showCountdown();
+        document.getElementById("subtitle").textContent = getReadableDate(fri600);
+        const diff = fri600 - now;
+        const totalSeconds = Math.max(0, Math.floor(diff/1000));
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        document.getElementById("days").textContent = days;
+        document.getElementById("hours").textContent = hours;
+        document.getElementById("minutes").textContent = minutes;
+        setTimeout(updateUI, 1000);
+        return;
+      }
+      // Friday 5:45 AM–7:05 AM: show livestream
+      if (now >= fri545 && now < fri705) {
+        showPlayer("LIVE");
+        document.getElementById("subtitle").textContent = getReadableDate(fri600);
+        pollForStream(liveURL, 10000, () => {});
+        setTimeout(updateUI, 61 * 1000);
+        return;
+      }
+      // Friday 7:05 AM–11:59 PM: show VOD player
+      if (now >= fri705 && now <= fri2359) {
+        showPlayer("VOD");
+        document.getElementById("subtitle").textContent = getReadableDate(fri600);
+        pollForStream(vodURL, VOD_POLL_INTERVAL, () => {});
+        setTimeout(updateUI, 5 * 60 * 1000);
+        return;
+      }
+      // After this Friday 11:59 PM: show countdown to next Friday 6:00 AM
+      if (now > fri2359) {
+        const nextFriday = getNextFriday(now);
+        const nextFri600 = addTime(nextFriday, 6, 0);
+        showCountdown();
+        document.getElementById("subtitle").textContent = getReadableDate(nextFri600);
+        const diff = nextFri600 - now;
+        const totalSeconds = Math.max(0, Math.floor(diff/1000));
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        document.getElementById("days").textContent = days;
+        document.getElementById("hours").textContent = hours;
+        document.getElementById("minutes").textContent = minutes;
+        setTimeout(updateUI, 1000);
+        return;
+      }
+      // Fallback: should never reach here, but if so, show an error
+      showFallback("Internal error: No valid time window matched. Please reload or contact support.");
+    }
+    updateUI();
   </script>
 </body>
 </html>
