@@ -77,18 +77,55 @@
       letter-spacing: 0.04em;
       font-weight: 500;
     }
+    #player-wrap {
+      display: none;
+      width: 100vw;
+      text-align: center;
+    }
+    #player-title {
+      font-size: 2.1rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      margin-top: 0px;
+      color: #fff;
+      letter-spacing: 0.02em;
+    }
+    #player-type {
+      color: #37a7ff;
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      letter-spacing: 0.03em;
+    }
+    #player-video {
+      width: 90vw;
+      max-width: 800px;
+      height: 52vw;
+      max-height: 450px;
+      background: #000;
+      border-radius: 12px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.22);
+      margin: 0 auto;
+      display: block;
+    }
+    #player-loading {
+      color: #e0e0e0;
+      margin-top: 1.5em;
+      font-size: 1.1rem;
+    }
     @media (max-width: 600px) {
-      .main-title { font-size: 1.25rem; }
+      .main-title, #player-title { font-size: 1.25rem; }
       .subtitle { font-size: 1rem; }
       .countdown-row { gap: 8px;}
       .countdown-box { padding: 18px 8px 10px 8px; min-width: 68px;}
       .countdown-value { font-size: 1.25rem; }
       .countdown-label { font-size: 0.75rem; }
+      #player-video { width: 98vw; height: 55vw; min-height: 180px; }
     }
   </style>
 </head>
 <body>
-  <div class="centerbox">
+  <div class="centerbox" id="countdown-wrap">
     <div class="label">NEXT SERVICE</div>
     <div class="main-title">Join Us For Prayer!</div>
     <div class="subtitle" id="subtitle"></div>
@@ -107,28 +144,40 @@
       </div>
     </div>
   </div>
+  <div id="player-wrap">
+    <div id="player-type"></div>
+    <div id="player-title">Join Us For Prayer!</div>
+    <video id="player-video" controls autoplay playsinline></video>
+    <div id="player-loading">Loading stream…</div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // Set your event time here (America/New_York time zone)
-    // Example: Next Friday at 7:00 AM Eastern
-    function getNextFriday7amEST() {
+    // ---- CONFIG ----
+    const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
+    const vodURL  = 'https://resi.media/XuvGAN/Manifest.m3u8';
+    const VOD_POLL_INTERVAL = 30000;    // 30 seconds
+
+    // ---- TIME HELPERS ----
+    function getNYTime() {
       const now = new Date();
-      const nowNY = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
-      const weekday = nowNY.getDay();
+      return new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}));
+    }
+
+    function getNextFridayAt(h, m) {
+      const nowNY = getNYTime();
+      let weekday = nowNY.getDay();
       let daysUntilFriday = (5 - weekday + 7) % 7;
-      if (daysUntilFriday === 0 && (nowNY.getHours() >= 7)) daysUntilFriday = 7;
-      const eventDate = new Date(nowNY);
-      eventDate.setDate(nowNY.getDate() + daysUntilFriday);
-      eventDate.setHours(7,0,0,0);
-      // Reconvert to America/New_York
-      return new Date(eventDate.toLocaleString("en-US", {timeZone: "America/New_York"}));
+      if (daysUntilFriday === 0 && (nowNY.getHours() > h || (nowNY.getHours() === h && nowNY.getMinutes() >= m))) daysUntilFriday = 7;
+      const friday = new Date(nowNY);
+      friday.setDate(nowNY.getDate() + daysUntilFriday);
+      friday.setHours(h, m, 0, 0);
+      return new Date(friday.toLocaleString("en-US", {timeZone: "America/New_York"}));
     }
 
     function getReadableDate(date) {
-      // Returns: Friday, May 31, 7:00 AM
       return date.toLocaleString("en-US", {
         timeZone: "America/New_York",
         weekday: "long",
-        year: undefined,
         month: "long",
         day: "numeric",
         hour: "numeric",
@@ -137,35 +186,129 @@
       });
     }
 
-    function updateCountdown() {
-      const now = new Date();
-      const eventDate = getNextFriday7amEST();
-      const diff = eventDate - now;
-      const subtitle = document.getElementById("subtitle");
-      const daysDiv = document.getElementById("days");
-      const hoursDiv = document.getElementById("hours");
-      const minutesDiv = document.getElementById("minutes");
+    // ---- UI HELPERS ----
+    function showCountdown() {
+      document.getElementById("countdown-wrap").style.display = "";
+      document.getElementById("player-wrap").style.display = "none";
+    }
+    function showPlayer(type) {
+      document.getElementById("countdown-wrap").style.display = "none";
+      document.getElementById("player-wrap").style.display = "";
+      document.getElementById("player-type").textContent = type === "VOD" ? "Replay Available" : "Livestream";
+    }
+    function setPlayerLoading(msg) {
+      document.getElementById("player-loading").textContent = msg;
+    }
 
-      // Subtitle: e.g. Friday, May 31, 7:00 AM
-      subtitle.textContent = getReadableDate(eventDate);
+    // ---- STREAM HELPERS ----
+    function urlExists(url) {
+      // Use HEAD to check manifest existence (no CORS errors for .m3u8)
+      return fetch(url, { method: 'HEAD', cache: 'no-store' })
+        .then(r => r.ok)
+        .catch(() => false);
+    }
+    let hlsInstance = null;
+    function loadStream(url, onLoaded) {
+      const video = document.getElementById("player-video");
+      setPlayerLoading("Loading stream…");
+      if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+      if (window.Hls && window.Hls.isSupported()) {
+        const hls = new Hls();
+        hlsInstance = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          setPlayerLoading("");
+          if (onLoaded) onLoaded();
+        });
+        hls.on(Hls.Events.ERROR, function(event, data) {
+          setPlayerLoading("Stream unavailable.");
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', function onLoadedMeta() {
+          video.removeEventListener('loadedmetadata', onLoadedMeta);
+          setPlayerLoading("");
+          if (onLoaded) onLoaded();
+        });
+      } else {
+        setPlayerLoading("This device does not support livestream playback.");
+      }
+    }
+    function pollForStream(url, interval, onLoaded) {
+      async function tryLoad() {
+        const exists = await urlExists(url);
+        if (exists) {
+          loadStream(url, onLoaded);
+        } else {
+          setPlayerLoading("Stream not available yet, retrying…");
+          setTimeout(tryLoad, interval);
+        }
+      }
+      tryLoad();
+    }
 
-      if (diff > 0) {
-        const totalSeconds = Math.floor(diff/1000);
+    // ---- MAIN LOGIC ----
+    function updateUI() {
+      const now = getNYTime();
+      const fri545 = getNextFridayAt(5, 45);
+      const fri600 = getNextFridayAt(6, 0);
+      const fri705 = getNextFridayAt(7, 5);
+      const fri2359 = getNextFridayAt(23, 59);
+
+      // Update subtitle to show next Friday 6am
+      document.getElementById("subtitle").textContent = getReadableDate(fri600);
+
+      // 1. Before Friday 5:45 AM, show countdown to Friday 6:00 AM
+      if (now < fri545) {
+        showCountdown();
+        // Set countdown
+        const diff = fri600 - now;
+        const totalSeconds = Math.max(0, Math.floor(diff/1000));
         const days = Math.floor(totalSeconds / 86400);
         const hours = Math.floor((totalSeconds % 86400) / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
-
-        daysDiv.textContent = days;
-        hoursDiv.textContent = hours;
-        minutesDiv.textContent = minutes;
-      } else {
-        daysDiv.textContent = 0;
-        hoursDiv.textContent = 0;
-        minutesDiv.textContent = 0;
+        document.getElementById("days").textContent = days;
+        document.getElementById("hours").textContent = hours;
+        document.getElementById("minutes").textContent = minutes;
+        setTimeout(updateUI, 1000);
+        return;
+      }
+      // 2. Friday 5:45 AM–7:05 AM: show livestream
+      if (now >= fri545 && now < fri705) {
+        showPlayer("LIVE");
+        // Poll until the stream is available
+        pollForStream(liveURL, 10000, () => {});
+        // Re-check for VOD switch at 7:05
+        setTimeout(updateUI, 61 * 1000);
+        return;
+      }
+      // 3. Friday 7:05 AM–11:59 PM: show VOD player
+      if (now >= fri705 && now <= fri2359) {
+        showPlayer("VOD");
+        pollForStream(vodURL, VOD_POLL_INTERVAL, () => {});
+        // Check for Friday rollover
+        setTimeout(updateUI, 5 * 60 * 1000);
+        return;
+      }
+      // 4. After Friday 11:59 PM, show countdown to next Friday 6:00 AM
+      if (now > fri2359) {
+        showCountdown();
+        // Next week's Friday 6:00 AM
+        const nextFri600 = getNextFridayAt(6, 0);
+        const diff = nextFri600 - now;
+        const totalSeconds = Math.max(0, Math.floor(diff/1000));
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        document.getElementById("days").textContent = days;
+        document.getElementById("hours").textContent = hours;
+        document.getElementById("minutes").textContent = minutes;
+        setTimeout(updateUI, 1000);
+        return;
       }
     }
-    updateCountdown();
-    setInterval(updateCountdown, 1000*15);
+    updateUI();
   </script>
 </body>
 </html>
