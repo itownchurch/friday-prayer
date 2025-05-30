@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Live Stream</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: black;
+      overflow: hidden;
+    }
+    #stream {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      background: black;
+    }
+  </style>
+</head>
+<body>
+  <video id="stream" controls autoplay playsinline style="display: none;"></video>
+  <div id="loading" style="color:white;text-align:center;margin-top:40vh;">Loading stream...</div>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const video = document.getElementById('stream');
+    const loading = document.getElementById('loading');
+    const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
+    const vodURL = 'https://resi.media/XuvGAN/Manifest.m3u8';
+
+    // Check if the manifest exists
+    async function urlExists(url) {
+      try {
+        const response = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    }
+
+    async function chooseAndLoadStream() {
+      const useLive = await urlExists(liveURL);
+      const streamURL = useLive ? liveURL : vodURL;
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({ liveSyncDuration: 3 });
+        hls.loadSource(streamURL);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+          loading.style.display = 'none';
+          video.style.display = '';
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamURL;
+        video.addEventListener('loadedmetadata', function() {
+          loading.style.display = 'none';
+          video.style.display = '';
+        });
+      } else {
+        loading.innerHTML = 'This device does not support live streaming.';
+      }
+    }
+
+    chooseAndLoadStream();
+  </script>
+</body>
+</html>
