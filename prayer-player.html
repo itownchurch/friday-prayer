@@ -152,38 +152,36 @@
   </div>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // CONFIG
+    // ---- CONFIG ----
     const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
     const vodURL  = 'https://resi.media/XuvGAN/Manifest.m3u8';
     const VOD_POLL_INTERVAL = 30000;    // 30 seconds
 
-    // TIME HELPERS
+    // ---- TIME HELPERS ----
     function getNYTime() {
       return new Date(new Date().toLocaleString("en-US", {timeZone: "America/New_York"}));
     }
 
-    function getMostRecentFriday(refDate) {
-      let d = new Date(refDate);
+    function getThisFriday(baseDate) {
+      // Always get this week's Friday (even if today is Friday)
+      let d = new Date(baseDate);
       d.setHours(0,0,0,0);
       let day = d.getDay();
-      let diff = (day >= 5) ? day - 5 : day + 2;
-      d.setDate(d.getDate() - diff);
-      return d;
-    }
-
-    function getUpcomingFriday(refDate) {
-      let d = new Date(refDate);
-      d.setHours(0,0,0,0);
-      let day = d.getDay();
-      let diff = (day <= 5) ? 5 - day : 12 - day;
+      let diff = (day <= 5) ? 5 - day : 12 - day; // Friday = 5
       d.setDate(d.getDate() + diff);
       return d;
     }
 
+    function getNextFriday(baseDate) {
+      let d = getThisFriday(baseDate);
+      d.setDate(d.getDate() + 7);
+      return d;
+    }
+
     function addTime(date, h, m) {
-      let newDate = new Date(date);
-      newDate.setHours(h, m, 0, 0);
-      return newDate;
+      let nd = new Date(date);
+      nd.setHours(h, m, 0, 0);
+      return nd;
     }
 
     function getReadableDate(date) {
@@ -198,7 +196,7 @@
       });
     }
 
-    // UI HELPERS
+    // ---- UI HELPERS ----
     function showCountdown() {
       document.getElementById("countdown-wrap").style.display = "";
       document.getElementById("player-wrap").style.display = "none";
@@ -212,7 +210,7 @@
       document.getElementById("player-loading").textContent = msg;
     }
 
-    // STREAM HELPERS
+    // ---- STREAM HELPERS ----
     function urlExists(url) {
       return fetch(url, { method: 'HEAD', cache: 'no-store' })
         .then(r => r.ok)
@@ -259,14 +257,14 @@
       tryLoad();
     }
 
-    // LOGIC
+    // ---- MAIN LOGIC ----
     function updateUI() {
       const now = getNYTime();
-      const mostRecentFriday = getMostRecentFriday(now);
-      const fri545 = addTime(mostRecentFriday, 5, 45);
-      const fri600 = addTime(mostRecentFriday, 6, 0);
-      const fri705 = addTime(mostRecentFriday, 7, 5);
-      const fri2359 = addTime(mostRecentFriday, 23, 59);
+      const thisFriday = getThisFriday(now);
+      const fri545 = addTime(thisFriday, 5, 45);
+      const fri600 = addTime(thisFriday, 6, 0);
+      const fri705 = addTime(thisFriday, 7, 5);
+      const fri2359 = addTime(thisFriday, 23, 59);
 
       // If now is before this Friday 5:45am, show countdown to this Friday 6:00am
       if (now < fri545) {
@@ -301,7 +299,7 @@
       }
       // After this Friday 11:59 PM: show countdown to next Friday 6:00 AM
       if (now > fri2359) {
-        const nextFriday = getUpcomingFriday(now);
+        const nextFriday = getNextFriday(now);
         const nextFri600 = addTime(nextFriday, 6, 0);
         showCountdown();
         document.getElementById("subtitle").textContent = getReadableDate(nextFri600);
