@@ -3,185 +3,146 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Join Us For Prayer!</title>
-  <link href="https://fonts.googleapis.com/css?family=Montserrat:700,400&display=swap" rel="stylesheet">
+  <title>Live Stream Countdown</title>
   <style>
-    body {
-      background: #080808; color: #fff; font-family: 'Montserrat', Arial, sans-serif;
-      margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; min-width: 100vw; align-items: center; justify-content: center;
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: black;
+      overflow: hidden;
+      color: white;
+      font-family: Arial, sans-serif;
     }
-    #centerbox { text-align: center; margin-bottom: 24px; }
-    #countdown-row { display: flex; justify-content: center; gap: 18px; margin-top: 0; }
-    .countdown-box { background: #212121; padding: 32px 36px 18px 36px; border-radius: 8px; min-width: 108px; }
-    .countdown-value { font-size: 2.4rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
-    .countdown-label { font-size: 1rem; color: #b0b0b0; }
-    #player-wrap { width: 100vw; text-align: center; }
-    #player-video { width: 90vw; max-width: 800px; height: 52vw; max-height: 450px; background: #000; border-radius: 12px; box-shadow: 0 4px 32px rgba(0,0,0,0.22); margin: 0 auto; display: block; }
-    #player-loading { color: #e0e0e0; margin-top: 1.5em; font-size: 1.1rem; }
-    #fallback-message { color: #ff6666; font-size: 1.2rem; margin-top: 3em; text-align: center; }
+    #countdown {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-size: 2.5em;
+    }
+    #stream {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      background: black;
+      display: none;
+    }
+    #fullscreenBtn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 10px 18px;
+      font-size: 16px;
+      cursor: pointer;
+      display: none;
+    }
+    .hide-native-fullscreen video::-webkit-media-controls-fullscreen-button {
+      display: none;
+    }
+    .hide-native-fullscreen video::-webkit-media-controls-enclosure {
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
-  <div id="centerbox">
-    <div style="color:#aaa;letter-spacing:0.05em;font-size:1.15rem;margin-bottom:18px;">NEXT SERVICE</div>
-    <div style="font-size:2.1rem;font-weight:700;margin-bottom:10px;color:#fff;">Join Us For Prayer!</div>
-    <div class="subtitle" id="subtitle"></div>
-    <div id="countdown-row">
-      <div class="countdown-box"><div class="countdown-value" id="days">0</div><div class="countdown-label">DAYS</div></div>
-      <div class="countdown-box"><div class="countdown-value" id="hours">0</div><div class="countdown-label">HOUR</div></div>
-      <div class="countdown-box"><div class="countdown-value" id="minutes">0</div><div class="countdown-label">MINUTES</div></div>
-    </div>
+  <div id="countdown">
+    <div>Live Stream begins in:</div>
+    <div id="timer"></div>
   </div>
-  <div id="player-wrap">
-    <div id="player-type"></div>
-    <div id="player-title" style="font-size:2.1rem;font-weight:700;margin-bottom:10px;margin-top:0px;color:#fff;">Join Us For Prayer!</div>
-    <video id="player-video" controls autoplay playsinline></video>
-    <div id="player-loading">Loading stream…</div>
-  </div>
-  <div id="fallback-message"></div>
+  <video id="stream" controls playsinline autoplay></video>
+  <button id="fullscreenBtn">Fullscreen</button>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // ---- CONFIG ----
-    const liveURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
-    const vodURL  = 'https://live.resi.media/XuvGAN/Manifest.m3u8';
-    const VOD_POLL_INTERVAL = 30000;    // 30 seconds
+    // Set the stream times (in local time)
+    function getNextSundayTime(hour, minute) {
+      const now = new Date();
+      const result = new Date(now);
+      result.setHours(hour, minute, 0, 0);
+      // 0 = Sunday, 6 = Saturday
+      let daysUntilSunday = (7 - now.getDay()) % 7;
+      if (daysUntilSunday === 0 && now > result) {
+        daysUntilSunday = 7;
+      }
+      result.setDate(now.getDate() + daysUntilSunday);
+      return result;
+    }
+    const streamStartTime = getNextSundayTime(11, 30); // 11:30am Sunday
+    const revealTime = getNextSundayTime(11, 15); // 11:15am Sunday
 
-    function getNYTime() {
-      return new Date(new Date().toLocaleString("en-US", {timeZone: "America/New_York"}));
-    }
-    function getThisFriday(baseDate) {
-      let d = new Date(baseDate); d.setHours(0,0,0,0);
-      let day = d.getDay(); let diff = (day <= 5) ? 5 - day : 12 - day;
-      d.setDate(d.getDate() + diff); return d;
-    }
-    function getNextFriday(baseDate) {
-      let d = getThisFriday(baseDate); d.setDate(d.getDate() + 7); return d;
-    }
-    function addTime(date, h, m) {
-      let nd = new Date(date); nd.setHours(h, m, 0, 0); return nd;
-    }
-    function getReadableDate(date) {
-      return date.toLocaleString("en-US", {timeZone: "America/New_York",weekday: "long",month: "long",day: "numeric",hour: "numeric",minute: "2-digit",hour12: true});
-    }
+    const countdownDiv = document.getElementById('countdown');
+    const timerDiv = document.getElementById('timer');
+    const video = document.getElementById('stream');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const streamURL = 'https://resi.media/JfQsxk/Manifest.m3u8';
 
-    function showCountdown(toDate) {
-      document.getElementById("centerbox").style.display = "";
-      document.getElementById("player-wrap").style.display = "none";
-      document.getElementById("fallback-message").style.display = "none";
-      document.getElementById("subtitle").textContent = getReadableDate(toDate);
-      const now = getNYTime();
-      const diff = toDate - now;
-      const totalSeconds = Math.max(0, Math.floor(diff/1000));
-      const days = Math.floor(totalSeconds / 86400);
-      const hours = Math.floor((totalSeconds % 86400) / 3600);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      document.getElementById("days").textContent = days;
-      document.getElementById("hours").textContent = hours;
-      document.getElementById("minutes").textContent = minutes;
-    }
-    function showPlayer(type) {
-      document.getElementById("centerbox").style.display = "none";
-      document.getElementById("player-wrap").style.display = "";
-      document.getElementById("fallback-message").style.display = "none";
-      document.getElementById("player-type").textContent = type === "VOD" ? "Replay Available" : "Livestream";
-    }
-    function showFallback(msg) {
-      document.getElementById("centerbox").style.display = "none";
-      document.getElementById("player-wrap").style.display = "none";
-      document.getElementById("fallback-message").style.display = "";
-      document.getElementById("fallback-message").textContent = msg;
-    }
-    function setPlayerLoading(msg) {
-      document.getElementById("player-loading").textContent = msg;
+    // Android/iOS detection
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isAndroid) {
+      document.body.classList.add('hide-native-fullscreen');
+      fullscreenBtn.style.display = 'block';
+    } else if (!isIOS) {
+      fullscreenBtn.style.display = 'block';
     }
 
-    let hlsInstance = null;
-    function loadStream(url, onLoaded) {
-      const video = document.getElementById("player-video");
-      setPlayerLoading("Loading stream… (" + url + ")");
-      if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-      if (window.Hls && window.Hls.isSupported()) {
-        const hls = new Hls();
-        hlsInstance = hls;
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-          setPlayerLoading(""); if (onLoaded) onLoaded();
-        });
-        hls.on(Hls.Events.ERROR, function(event, data) {
-          setPlayerLoading("Stream unavailable.");
-          showFallback("Stream unavailable (HLS.js error: " + data.type + ")");
-          console.error("HLS.js error:", data);
-        });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = url;
-        video.addEventListener('loadedmetadata', function onLoadedMeta() {
-          video.removeEventListener('loadedmetadata', onLoadedMeta);
-          setPlayerLoading(""); if (onLoaded) onLoaded();
-        });
+    function updateCountdown() {
+      const now = new Date();
+      if (now >= revealTime) {
+        // Show stream, hide countdown
+        countdownDiv.style.display = 'none';
+        video.style.display = 'block';
+        showStream();
+        clearInterval(timerInterval);
       } else {
-        setPlayerLoading("This device does not support livestream playback.");
-        showFallback("Your browser does not support HLS streaming.");
+        // Show countdown
+        let diff = streamStartTime - now;
+        if (diff < 0) diff = 0;
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const secs = Math.floor((diff % (1000 * 60)) / 1000);
+        timerDiv.textContent = 
+          (hours > 0 ? hours + "h " : "") +
+          (mins > 0 ? mins + "m " : "") +
+          secs + "s";
       }
-    }
-    function urlExists(url) {
-      return fetch(url, { method: 'HEAD', cache: 'no-store' })
-        .then(r => r.ok)
-        .catch(() => false);
-    }
-    function pollForStream(url, interval, onLoaded) {
-      async function tryLoad() {
-        const exists = await urlExists(url);
-        if (exists) {
-          loadStream(url, onLoaded);
-        } else {
-          setPlayerLoading("Stream not available yet, retrying… (" + url + ")");
-          setTimeout(tryLoad, interval);
-        }
-      }
-      tryLoad();
     }
 
-    // MAIN LOGIC
-    function updateUI() {
-      const now = getNYTime();
-      const thisFriday = getThisFriday(now);
-      const fri545 = addTime(thisFriday, 5, 45);
-      const fri600 = addTime(thisFriday, 6, 0);
-      const fri705 = addTime(thisFriday, 7, 5);
-      const fri2359 = addTime(thisFriday, 23, 59);
-
-      // Countdown
-      if (now < fri545) {
-        showCountdown(fri600);
-        setTimeout(updateUI, 1000);
-        return;
+    function showStream() {
+      // Initialize HLS.js or native playback
+      if (Hls.isSupported()) {
+        const hls = new Hls({ liveSyncDuration: 3 });
+        hls.loadSource(streamURL);
+        hls.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamURL;
+      } else {
+        video.outerHTML = '<p style="color: white; text-align: center;">This device does not support live streaming.</p>';
       }
-      // Livestream
-      if (now >= fri545 && now < fri705) {
-        showPlayer("LIVE");
-        pollForStream(liveURL, 10000, () => {});
-        setTimeout(updateUI, 61000);
-        return;
-      }
-      // VOD
-      if (now >= fri705 && now <= fri2359) {
-        showPlayer("VOD");
-        pollForStream(vodURL, VOD_POLL_INTERVAL, () => {});
-        setTimeout(updateUI, 5*60*1000);
-        return;
-      }
-      // Next week
-      if (now > fri2359) {
-        const nextFriday = getNextFriday(now);
-        const nextFri600 = addTime(nextFriday, 6, 0);
-        showCountdown(nextFri600);
-        setTimeout(updateUI, 1000);
-        return;
-      }
-      showFallback("Internal error: No valid time window matched. Time: "+now.toISOString());
     }
-    updateUI();
+
+    // Custom Fullscreen handler
+    fullscreenBtn.addEventListener('click', function() {
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if (video.mozRequestFullScreen) {
+        video.mozRequestFullScreen();
+      } else if (video.webkitRequestFullscreen) {
+        video.webkitRequestFullscreen();
+      } else if (video.msRequestFullscreen) {
+        video.msRequestFullscreen();
+      }
+    });
+
+    // Start countdown timer
+    updateCountdown();
+    const timerInterval = setInterval(updateCountdown, 1000);
   </script>
 </body>
 </html>
