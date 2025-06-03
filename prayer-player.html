@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Live Stream Countdown</title>
+  <title>Friday Prayer Player</title>
   <style>
     html, body {
       margin: 0;
@@ -14,15 +14,7 @@
       color: white;
       font-family: Arial, sans-serif;
     }
-    #countdown {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      font-size: 2.5em;
-    }
-    #stream {
+    #stream, #vod {
       width: 100vw;
       height: 100vh;
       object-fit: contain;
@@ -49,38 +41,35 @@
     .hide-native-fullscreen video::-webkit-media-controls-enclosure {
       overflow: hidden;
     }
+    #offline {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      align-items: center;
+      justify-content: center;
+      background: black;
+      color: white;
+      font-size: 2em;
+      text-align: center;
+      display: flex;
+    }
   </style>
 </head>
 <body>
-  <div id="countdown">
-    <div>Live Stream begins in:</div>
-    <div id="timer"></div>
-  </div>
   <video id="stream" controls playsinline autoplay></video>
+  <video id="vod" controls playsinline autoplay></video>
   <button id="fullscreenBtn">Fullscreen</button>
+  <div id="offline">The stream is currently offline.</div>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
-    // Set the stream times (in local time)
-    function getNextSundayTime(hour, minute) {
-      const now = new Date();
-      const result = new Date(now);
-      result.setHours(hour, minute, 0, 0);
-      // 0 = Sunday, 6 = Saturday
-      let daysUntilSunday = (7 - now.getDay()) % 7;
-      if (daysUntilSunday === 0 && now > result) {
-        daysUntilSunday = 7;
-      }
-      result.setDate(now.getDate() + daysUntilSunday);
-      return result;
-    }
-    const streamStartTime = getNextSundayTime(11, 30); // 11:30am Sunday
-    const revealTime = getNextSundayTime(11, 15); // 11:15am Sunday
+    // Your provided URLs
+    const streamURL = 'https://live.resi.media/itc-fs-in/Manifest.m3u8';
+    const vodURL = 'https://resi.media/XuvGAN/Manifest.m3u8';
 
-    const countdownDiv = document.getElementById('countdown');
-    const timerDiv = document.getElementById('timer');
-    const video = document.getElementById('stream');
+    const videoStream = document.getElementById('stream');
+    const videoVOD = document.getElementById('vod');
     const fullscreenBtn = document.getElementById('fullscreenBtn');
-    const streamURL = 'https://resi.media/JfQsxk/Manifest.m3u8';
+    const offlineDiv = document.getElementById('offline');
 
     // Android/iOS detection
     const isAndroid = /android/i.test(navigator.userAgent);
@@ -92,57 +81,91 @@
       fullscreenBtn.style.display = 'block';
     }
 
-    function updateCountdown() {
-      const now = new Date();
-      if (now >= revealTime) {
-        // Show stream, hide countdown
-        countdownDiv.style.display = 'none';
-        video.style.display = 'block';
-        showStream();
-        clearInterval(timerInterval);
-      } else {
-        // Show countdown
-        let diff = streamStartTime - now;
-        if (diff < 0) diff = 0;
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const secs = Math.floor((diff % (1000 * 60)) / 1000);
-        timerDiv.textContent = 
-          (hours > 0 ? hours + "h " : "") +
-          (mins > 0 ? mins + "m " : "") +
-          secs + "s";
-      }
-    }
-
-    function showStream() {
-      // Initialize HLS.js or native playback
-      if (Hls.isSupported()) {
-        const hls = new Hls({ liveSyncDuration: 3 });
-        hls.loadSource(streamURL);
-        hls.attachMedia(video);
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamURL;
-      } else {
-        video.outerHTML = '<p style="color: white; text-align: center;">This device does not support live streaming.</p>';
-      }
-    }
-
-    // Custom Fullscreen handler
+    // Fullscreen handler
     fullscreenBtn.addEventListener('click', function() {
-      if (video.requestFullscreen) {
-        video.requestFullscreen();
-      } else if (video.mozRequestFullScreen) {
-        video.mozRequestFullScreen();
-      } else if (video.webkitRequestFullscreen) {
-        video.webkitRequestFullscreen();
-      } else if (video.msRequestFullscreen) {
-        video.msRequestFullscreen();
+      const visibleVideo = videoStream.style.display === 'block' ? videoStream : videoVOD;
+      if (visibleVideo.requestFullscreen) {
+        visibleVideo.requestFullscreen();
+      } else if (visibleVideo.mozRequestFullScreen) {
+        visibleVideo.mozRequestFullScreen();
+      } else if (visibleVideo.webkitRequestFullscreen) {
+        visibleVideo.webkitRequestFullscreen();
+      } else if (visibleVideo.msRequestFullscreen) {
+        visibleVideo.msRequestFullscreen();
       }
     });
 
-    // Start countdown timer
-    updateCountdown();
-    const timerInterval = setInterval(updateCountdown, 1000);
+    function hideAll() {
+      videoStream.style.display = 'none';
+      videoVOD.style.display = 'none';
+      offlineDiv.style.display = 'none';
+    }
+
+    function showStream() {
+      hideAll();
+      videoStream.style.display = 'block';
+      // Initialize HLS.js or native playback
+      if (!videoStream.src) {
+        if (Hls.isSupported()) {
+          const hls = new Hls({ liveSyncDuration: 3 });
+          hls.loadSource(streamURL);
+          hls.attachMedia(videoStream);
+        } else if (videoStream.canPlayType('application/vnd.apple.mpegurl')) {
+          videoStream.src = streamURL;
+        } else {
+          videoStream.outerHTML = '<p style="color: white; text-align: center;">This device does not support live streaming.</p>';
+        }
+      }
+    }
+
+    function showVOD() {
+      hideAll();
+      videoVOD.style.display = 'block';
+      // Initialize HLS.js or native playback
+      if (!videoVOD.src) {
+        if (Hls.isSupported()) {
+          const hls = new Hls();
+          hls.loadSource(vodURL);
+          hls.attachMedia(videoVOD);
+        } else if (videoVOD.canPlayType('application/vnd.apple.mpegurl')) {
+          videoVOD.src = vodURL;
+        } else {
+          videoVOD.outerHTML = '<p style="color: white; text-align: center;">This device does not support VOD streaming.</p>';
+        }
+      }
+    }
+
+    function showOffline() {
+      hideAll();
+      offlineDiv.style.display = 'flex';
+    }
+
+    function updatePlayer() {
+      const now = new Date();
+      const day = now.getDay(); // 5 = Friday
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+
+      if (day === 5) { // Friday
+        const startLive = 5 * 60 + 15; // 5:15am in minutes
+        const endLive = 7 * 60 + 5;    // 7:05am in minutes
+        const endVOD = 11 * 60 + 59;   // 11:59am in minutes
+        const nowMinutes = hours * 60 + minutes;
+
+        if (nowMinutes >= startLive && nowMinutes < endLive) {
+          showStream();
+        } else if (nowMinutes >= endLive && nowMinutes <= endVOD) {
+          showVOD();
+        } else {
+          showOffline();
+        }
+      } else {
+        showOffline();
+      }
+    }
+
+    updatePlayer();
+    setInterval(updatePlayer, 60 * 1000); // Update every minute
   </script>
 </body>
 </html>
